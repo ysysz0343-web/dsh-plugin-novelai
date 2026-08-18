@@ -32,11 +32,11 @@ dsh plugins list
 
 ## 配置 NovelAI Token
 
-三种方式（优先级从高到低）：
+三种方式（优先级从高到低，任选其一）：
 
-1. 工具调用时传 `token` 参数；
-2. `cordis.patch.yml` 中 `config.token`；
-3. 环境变量 `NOVELAI_API_KEY`（或在 `$DSH_HOME/.credentials.yaml` 配置该 key）。
+1. **直接在对话里把 API 发给 AI** —— 最简单：把 `pst-xxxx` 粘贴到对话里，AI 生成时会自动带上；
+2. 在 `cordis.patch.yml` 的 `config.token` 里配置（一劳永逸）；
+3. 配置环境变量 `NOVELAI_API_KEY`，或写入 `$DSH_HOME/.credentials.yaml`（DSH 原生密钥库，推荐，比 env 更持久安全）。
 
 ## 使用方法
 

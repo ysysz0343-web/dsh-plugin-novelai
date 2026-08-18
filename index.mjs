@@ -147,14 +147,20 @@ export function apply(ctx, config = {}) {
     },
     timeoutMs: 600000,
     async execute(args, exec) {
-      const token = String(
+      let token = String(
         (args && typeof args.token === 'string' && args.token.trim())
         || resolved.token
-        || (typeof process !== 'undefined' && process.env && process.env.NOVELAI_API_KEY)
         || '',
       ).trim()
       if (!token) {
-        throw new Error('未配置 NovelAI Token。请在 cordis.patch.yml 的 config.token、环境变量 NOVELAI_API_KEY 中配置，或通过工具参数 token 传入。')
+        const credentials = ctx.get('credentials')
+        if (credentials && typeof credentials.resolve === 'function') {
+          const cred = await credentials.resolve('NOVELAI_API_KEY')
+          if (cred && cred.value) token = String(cred.value).trim()
+        }
+      }
+      if (!token) {
+        throw new Error('未配置 NovelAI Token。直接在对话里把 API 发给 AI，或配置 cordis.patch.yml 的 config.token / 环境变量 NOVELAI_API_KEY。')
       }
 
       const baseCaption = normalizeRelationTags(String((args && args.base_caption) || '')).trim()
