@@ -58,16 +58,16 @@ AI 会设计好 `base_caption` / `characters` / `size_preset`，调用 `nai_gene
 
 ### 图片提示词反推（需配置识图 LLM）
 
-`nai_reverse_prompt` 读取一张本地图片，调用你配置的**识图 LLM**（多模态视觉模型）描述画面，并按同样的 NAI 规范反推出 `base_caption` / `characters` / `size_preset`。先在 `cordis.patch.yml` 的 `config` 里配置识图 LLM：
+`nai_reverse_prompt` 读取一张本地图片，调用你配置的**识图 LLM**（任意 OpenAI 兼容的多模态端点）描述画面并按 NAI 规范反推出提示词。在 `settings.yaml` 里填（热加载，改完即生效）：
 
 ```yaml
-- insert:
-    - id: novelai-image
-      name: dsh-plugin-novelai
-      config:
-        visionProvider: pi-ai        # 你的视觉模型 provider 路由
-        visionModel: gpt-4o          # 视觉模型 id
+novelai-image:
+  visionBaseUrl: http://127.0.0.1:8080/v1   # base URL（本地 llama.cpp 或在线服务）
+  visionApiKey: ""                            # API Key（本地可留空）
+  visionModel: Qwen3.8-27B-Uncensored-noMTP-Q4_K_M.gguf   # 模型名
 ```
+
+> 任意 OpenAI 兼容端点都行：本地 llama.cpp、SiliconFlow、gptsapi、OpenAI 等。
 
 用法：`反推 E:\path\to\image.png 的提示词`，得到提示词后可再让 AI 用它生成同风格图。
 

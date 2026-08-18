@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-novelai",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "NovelAI Diffusion V4.5 Full image generation for DeepSeek Harness: text-to-image, Danbooru tag lookup, and image-to-prompt reverse engineering.",
   "type": "module",
   "main": "index.mjs",
@@ -24,7 +24,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/schemastery": "*",
     "@deepseek-ai/dsh-tools": "*"
   },
   "engines": {

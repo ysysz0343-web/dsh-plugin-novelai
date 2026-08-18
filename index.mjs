@@ -11,9 +11,10 @@
  * npm/path forms). The bundle patch inserts this row into the host composition.
  */
 
-import { join, basename } from 'node:path'
+import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import z from '@deepseek-ai/schemastery'
 import {
   generateImage,
   savePngs,
@@ -30,7 +31,7 @@ import {
 } from './novelai-core.mjs'
 
 export const name = 'novelai-image'
-export const inject = ['tools']
+export const inject = ['tools', 'settings']
 
 /** The design rules the agent must follow before calling the tool. */
 const DESIGN_RULES = [
@@ -96,9 +97,13 @@ export function apply(ctx, config = {}) {
     token: typeof config.token === 'string' ? config.token.trim() : '',
     proxy: typeof config.proxy === 'string' && config.proxy.trim() ? config.proxy.trim() : DEFAULT_PROXY,
     outDir: typeof config.outDir === 'string' && config.outDir.trim() ? config.outDir.trim() : null,
-    visionProvider: typeof config.visionProvider === 'string' ? config.visionProvider.trim() : '',
-    visionModel: typeof config.visionModel === 'string' ? config.visionModel.trim() : '',
   }
+
+  const visionScope = ctx.settings.register('novelai-image', z.object({
+    visionBaseUrl: z.string().default(''),
+    visionApiKey: z.string().default(''),
+    visionModel: z.string().default(''),
+  }))
 
   const tool = defineTool({
     name: 'nai_generate_image',
@@ -281,7 +286,7 @@ export function apply(ctx, config = {}) {
 
   const reverseTool = defineTool({
     name: 'nai_reverse_prompt',
-    description: '图片提示词反推：读取一张本地图片，用配置的识图 LLM 描述画面并按 NovelAI V4.5 规范反推出提示词（base_caption + characters + size_preset），可直接交给 nai_generate_image 生成同风格图。',
+    description: '图片提示词反推：读取一张本地图片，用 settings.yaml 里 novelai-image 段配置的识图 LLM（visionBaseUrl + visionApiKey + visionModel，任意 OpenAI 兼容端点）描述画面并按 NovelAI V4.5 规范反推出提示词（base_caption + characters + size_preset）。',
     parameters: {
       path: { type: 'string', required: true, description: '图片文件的绝对路径（png/jpg/webp/gif）。' },
       requirement: { type: 'string', description: '可选：对反推结果的额外要求（如「去掉角色」「改成竖图」）。' },
@@ -306,55 +311,63 @@ export function apply(ctx, config = {}) {
         return [{ type: 'text', text: '反推出的 NovelAI 提示词：\n' + value.raw }]
       },
     },
-    timeoutMs: 120000,
+    timeoutMs: 300000,
     async execute(args, exec) {
       const p = String((args && args.path) || '').trim()
       if (!p) throw new Error('path 不能为空（图片文件路径）')
-      const provider = resolved.visionProvider
-      const model = resolved.visionModel
-      if (!provider || !model) {
-        throw new Error('未配置识图 LLM。请在 cordis.patch.yml 的 config 里设置 visionProvider 和 visionModel。')
+      const settings = visionScope.get()
+      const baseUrl = String((settings && settings.visionBaseUrl) || '').trim().replace(/\/+$/, '')
+      const apiKey = String((settings && settings.visionApiKey) || '').trim()
+      const model = String((settings && settings.visionModel) || '').trim()
+      if (!baseUrl || !model) {
+        throw new Error('未配置识图 LLM。请在 settings.yaml 的 novelai-image 段填写 visionBaseUrl、visionApiKey、visionModel。')
       }
-      const llm = ctx.get('llm')
-      if (!llm) throw new Error('llm 服务不可用')
-      const attachments = ctx.get('attachments')
-      if (!attachments) throw new Error('attachments 服务不可用')
-      const fsSvc = ctx.get('fs')
-      if (!fsSvc) throw new Error('fs 服务不可用')
 
       const signal = exec && exec.signal ? exec.signal : undefined
-      const target = await fsSvc.resolve(p)
-      const bytes = await fsSvc.readBytes(target, signal, 32 * 1024 * 1024)
-      const ref = await attachments.saveImage({ data: bytes, mediaType: detectMediaType(bytes), name: basename(p) })
+      let bytes
+      try { bytes = readFileSync(p) } catch (e) { throw new Error('无法读取图片文件: ' + (e && e.message ? e.message : String(e))) }
+      const mediaType = detectMediaType(bytes)
+      const dataUri = 'data:' + mediaType + ';base64,' + bytes.toString('base64')
 
       const requirement = String((args && args.requirement) || '').trim()
       const userText = requirement
         ? '请反推这张图片的 NovelAI 提示词。额外要求：' + requirement
         : '请反推这张图片的 NovelAI 提示词。'
-      const message = createUserMessage({
-        content: [{ type: 'text', text: userText }, { type: 'image', attachment: ref }],
-        source: { kind: 'user' },
-      })
 
-      let text = ''
-      for await (const chunk of llm.stream({ provider, model, system: REVERSE_SYSTEM, messages: [message], maxTokens: 1000, signal })) {
-        if (chunk.type === 'text-delta') text += chunk.text
-        else if (chunk.type === 'finish' && chunk.reason) {
-          if (chunk.reason.kind === 'error') {
-            throw new Error('识图 LLM 报错: ' + (chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : '未知错误'))
-          }
-          if (chunk.reason.kind === 'aborted') throw new Error('识图 LLM 调用被取消')
-        }
+      const headers = { 'Content-Type': 'application/json' }
+      if (apiKey) headers.Authorization = 'Bearer ' + apiKey
+
+      const res = await fetch(baseUrl + '/chat/completions', {
+        method: 'POST',
+        headers,
+        signal,
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: REVERSE_SYSTEM },
+            { role: 'user', content: [
+              { type: 'text', text: userText },
+              { type: 'image_url', image_url: { url: dataUri } },
+            ] },
+          ],
+          max_tokens: 1000,
+        }),
+      })
+      if (!res.ok) {
+        let errText = ''
+        try { errText = await res.text() } catch { /* ignore */ }
+        throw new Error('识图 LLM HTTP ' + res.status + (errText ? ': ' + errText.slice(0, 500) : ''))
       }
-      const trimmed = text.trim()
-      if (!trimmed) throw new Error('识图 LLM 未返回内容')
-      const parsed = parsePromptJson(trimmed)
+      const data = await res.json()
+      const text = String((data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim()
+      if (!text) throw new Error('识图 LLM 未返回内容')
+      const parsed = parsePromptJson(text)
       return {
         status: 'ok',
         baseCaption: typeof parsed.base_caption === 'string' ? parsed.base_caption : '',
         characters: Array.isArray(parsed.characters) ? parsed.characters.map((c) => (typeof c === 'string' ? c : (c && c.caption ? c.caption : ''))).filter(Boolean) : [],
         sizePreset: typeof parsed.size_preset === 'string' ? parsed.size_preset : 'PORTRAIT',
-        raw: trimmed,
+        raw: text,
       }
     },
   })
