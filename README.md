@@ -1,14 +1,16 @@
 # dsh-plugin-novelai
 
+> **像聊天一样生图，把想象直接说成画面。** 告别枯燥的提示词工程——描述你脑海里的画面，AI 自动按专业规则写好 NovelAI V4.5 提示词并出图，不用再手搓 Danbooru tags。
+
 NovelAI Diffusion V4.5 Full 生图插件 for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）。
 
 在对话里描述你想要的图片，AI 会按内置的 NovelAI 提示词设计规则（照搬自 ChatChatBar 的 `NOVELAI_IMAGE_PROMPT_SYSTEM`）写好提示词，然后调用 `nai_generate_image` 工具真正生成。生成的 PNG 保存到本地文件，工具结果只含文本，纯文本模型适配器不会收到图片内容块。
 
-## 安装（永久）
+## 安装
 
 ```sh
 # 从 GitHub（生产推荐）
-dsh plugin --profile web add github:<owner>/<repo>
+dsh plugin --profile web add github:ysysz0343-web/dsh-plugin-novelai
 
 # 从 npm
 dsh plugin --profile web add @scope/dsh-plugin-novelai
