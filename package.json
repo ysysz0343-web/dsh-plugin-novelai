@@ -1,0 +1,39 @@
+{
+  "name": "dsh-plugin-novelai",
+  "version": "0.1.0",
+  "description": "NovelAI Diffusion V4.5 Full image generation for DeepSeek Harness: the AI designs NovelAI prompts and generates images via the nai_generate_image tool.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./novelai-core.mjs": "./novelai-core.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "novelai-core.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "novelai",
+    "nai-diffusion",
+    "image-generation"
+  ]
+}

@@ -1,0 +1,14 @@
+# dsh-plugin-novelai bundle patch: mount the NovelAI image-generation row into
+# the host composition (the shared tools registry). `dsh plugin add` installs
+# this package into the profile and reconciles it into dsh.profile.bundles.
+- insert:
+    - id: novelai-image
+      name: dsh-plugin-novelai
+      # Optional config (uncomment to set):
+      # config:
+      #   # NovelAI persistent API token (fallback: env NOVELAI_API_KEY, or the tool's `token` argument)
+      #   token: pst-xxxx
+      #   # HTTP(S) proxy for the generation request (default: http://127.0.0.1:2080; empty = direct)
+      #   proxy: http://127.0.0.1:2080
+      #   # Directory where generated PNGs are written (default: <session workspace>/nai-images)
+      #   outDir: C:/path/to/output
