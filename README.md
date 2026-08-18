@@ -4,7 +4,7 @@
 
 NovelAI Diffusion V4.5 Full 生图插件 for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）。
 
-在对话里描述你想要的图片，AI 会按内置的 NovelAI 提示词设计规则（照搬自 ChatChatBar 的 `NOVELAI_IMAGE_PROMPT_SYSTEM`）写好提示词，然后调用 `nai_generate_image` 工具真正生成。生成的 PNG 保存到本地文件，工具结果只含文本，纯文本模型适配器不会收到图片内容块。
+在对话里描述你想要的图片，AI 会按内置的 NovelAI 提示词设计规则（参考并改进了 ChatChatBar 的 `NOVELAI_IMAGE_PROMPT_SYSTEM`）写好提示词，然后调用 `nai_generate_image` 工具真正生成。生成的 PNG 保存到本地文件，工具结果只含文本，纯文本模型适配器不会收到图片内容块。
 
 ## 安装
 
@@ -86,7 +86,7 @@ novelai-image:
 
 ## 实现说明
 
-- 端点 `POST https://image.novelai.net/ai/generate-image-stream`，模型 `nai-diffusion-4-5-full`，请求体逐字段对齐 ChatChatBar 的 V4 实现（`params_version:3`、28 steps、scale 8、`k_euler_ancestral`、Karras、`v4_prompt`/`v4_negative_prompt` 等）。
+- 端点 `POST https://image.novelai.net/ai/generate-image-stream`，模型 `nai-diffusion-4-5-full`，请求体逐字段对齐 ChatChatBar 项目的 V4 实现（`params_version:3`、28 steps、scale 8、`k_euler_ancestral`、Karras、`v4_prompt`/`v4_negative_prompt` 等）。
 - 响应是 MessagePack 二进制流（4 字节大端长度前缀帧），插件内置纯 JS 解码器解析 `intermediate` / `final` / `error`。
 - 请求走 Windows 自带 `curl.exe`（`-x` 支持代理），因为 DSH 的 `web.fetch` 只支持 GET 文本。
 - Token 不落盘；插件进程内不持久化任何凭据。
