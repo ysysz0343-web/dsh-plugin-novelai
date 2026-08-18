@@ -12,7 +12,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -257,47 +257,51 @@ export async function generateImage(options) {
   const dir = mkdtempSync(join(tmpdir(), 'nai-'))
   const bodyPath = join(dir, 'body.json')
   const outPath = join(dir, 'out.bin')
-  writeFileSync(bodyPath, JSON.stringify(body))
-
-  const args = [
-    'curl.exe', '-sS', '-X', 'POST', ENDPOINT,
-    '-H', 'Authorization: Bearer ' + token,
-    '-H', 'Content-Type: application/json',
-    '-H', 'Accept: application/octet-stream',
-    '--data-binary', '@' + bodyPath,
-    '-o', outPath,
-    '-w', '%{http_code}',
-    '--connect-timeout', '30',
-    '--max-time', '540',
-  ]
-  if (/^https?:\/\//.test(String(proxy || '').trim())) args.push('-x', String(proxy).trim())
-
-  let stdout = ''
-  let stderr = ''
   try {
-    const result = await execFileAsync(args[0], args.slice(1), {
-      encoding: 'utf8',
-      maxBuffer: 1024 * 1024,
-      timeout: 600000,
-      signal,
-    })
-    stdout = (result.stdout || '').trim()
-    stderr = (result.stderr || '').trim()
-  } catch (e) {
-    stdout = (e.stdout || '').toString().trim()
-    stderr = String(e.stderr || e.message || '')
-    if (e.killed || e.signal) throw new Error('NovelAI 请求已取消或超时')
-    if (!stdout) throw new Error('curl 请求失败: ' + (stderr || e.message))
-  }
+    writeFileSync(bodyPath, JSON.stringify(body))
 
-  if (!/^2/.test(stdout)) {
-    let errBody = ''
-    try { errBody = readFileSync(outPath, 'utf8').slice(0, 1000) } catch { /* no body */ }
-    throw new Error('NovelAI HTTP ' + stdout + (errBody ? ': ' + errBody : ''))
-  }
+    const args = [
+      'curl.exe', '-sS', '-X', 'POST', ENDPOINT,
+      '-H', 'Authorization: Bearer ' + token,
+      '-H', 'Content-Type: application/json',
+      '-H', 'Accept: application/octet-stream',
+      '--data-binary', '@' + bodyPath,
+      '-o', outPath,
+      '-w', '%{http_code}',
+      '--connect-timeout', '30',
+      '--max-time', '540',
+    ]
+    if (/^https?:\/\//.test(String(proxy || '').trim())) args.push('-x', String(proxy).trim())
 
-  const buf = readFileSync(outPath)
-  return parseStream(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength))
+    let stdout = ''
+    let stderr = ''
+    try {
+      const result = await execFileAsync(args[0], args.slice(1), {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 600000,
+        signal,
+      })
+      stdout = (result.stdout || '').trim()
+      stderr = (result.stderr || '').trim()
+    } catch (e) {
+      stdout = (e.stdout || '').toString().trim()
+      stderr = String(e.stderr || e.message || '')
+      if (e.killed || e.signal) throw new Error('NovelAI 请求已取消或超时')
+      if (!stdout) throw new Error('curl 请求失败: ' + (stderr || e.message))
+    }
+
+    if (!/^2/.test(stdout)) {
+      let errBody = ''
+      try { errBody = readFileSync(outPath, 'utf8').slice(0, 1000) } catch { /* no body */ }
+      throw new Error('NovelAI HTTP ' + stdout + (errBody ? ': ' + errBody : ''))
+    }
+
+    const buf = readFileSync(outPath)
+    return parseStream(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength))
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
+  }
 }
 
 /**
@@ -316,4 +320,30 @@ export function savePngs(finals, seed, outDir) {
     paths.push(p)
   }
   return paths
+}
+
+/**
+ * Query the Danbooru tag-suggest API (Chinese / English / pinyin searchable,
+ * no auth). Used to look up the exact official tags before designing a prompt.
+ * @param query - the search keyword.
+ * @param limit - max results to return (default 8).
+ * @param signal - optional AbortSignal.
+ * @returns `[{ name, cnName, count, category }]`.
+ */
+export async function suggestTags(query, limit = 8, signal) {
+  const q = String(query || '').trim()
+  if (!q) return []
+  const url = 'https://tagsuggest.zeabur.app/api/tags/suggest?q=' + encodeURIComponent(q)
+  const timeoutSignal = AbortSignal.timeout(10000)
+  const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+  const res = await fetch(url, { signal: combined, headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error('Tag 搜索 API HTTP ' + res.status)
+  const data = await res.json()
+  const list = Array.isArray(data && data.results) ? data.results : []
+  return list.slice(0, Math.max(1, limit)).map((r) => ({
+    name: String(r.name || ''),
+    cnName: String(r.cn_name || ''),
+    count: typeof r.count === 'number' ? r.count : 0,
+    category: typeof r.category === 'number' ? r.category : 0,
+  }))
 }

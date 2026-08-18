@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-novelai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NovelAI Diffusion V4.5 Full image generation for DeepSeek Harness: the AI designs NovelAI prompts and generates images via the nai_generate_image tool.",
   "type": "module",
   "main": "index.mjs",

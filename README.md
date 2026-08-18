@@ -46,7 +46,16 @@ dsh plugins list
 
 AI 会设计好 `base_caption` / `characters` / `size_preset`，调用 `nai_generate_image`，图片保存到会话工作区的 `nai-images` 目录（默认），工具结果里会返回文件路径。
 
-### 工具参数
+设计提示词时，AI 会先用 `nai_tag_suggest` 查询 Danbooru 官方 tag（角色/动作/体位/镜头/环境等，支持中文/英文/拼音）来规范化提示词，避免凭印象拼写错 tag。
+
+### 工具
+
+| 工具 | 说明 |
+| --- | --- |
+| `nai_generate_image` | 按设计规则生成 NovelAI V4.5 Full 图片 |
+| `nai_tag_suggest` | 查询 Danbooru tag 建议（中文/英文/拼音），用于规范化提示词 |
+
+### `nai_generate_image` 参数
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
