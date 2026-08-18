@@ -54,6 +54,22 @@ AI 会设计好 `base_caption` / `characters` / `size_preset`，调用 `nai_gene
 | --- | --- |
 | `nai_generate_image` | 按设计规则生成 NovelAI V4.5 Full 图片 |
 | `nai_tag_suggest` | 查询 Danbooru tag 建议（中文/英文/拼音），用于规范化提示词 |
+| `nai_reverse_prompt` | 图片提示词反推：读本地图片，用识图 LLM 描述并按 NAI 规范反推出提示词 |
+
+### 图片提示词反推（需配置识图 LLM）
+
+`nai_reverse_prompt` 读取一张本地图片，调用你配置的**识图 LLM**（多模态视觉模型）描述画面，并按同样的 NAI 规范反推出 `base_caption` / `characters` / `size_preset`。先在 `cordis.patch.yml` 的 `config` 里配置识图 LLM：
+
+```yaml
+- insert:
+    - id: novelai-image
+      name: dsh-plugin-novelai
+      config:
+        visionProvider: pi-ai        # 你的视觉模型 provider 路由
+        visionModel: gpt-4o          # 视觉模型 id
+```
+
+用法：`反推 E:\path\to\image.png 的提示词`，得到提示词后可再让 AI 用它生成同风格图。
 
 ### `nai_generate_image` 参数
 

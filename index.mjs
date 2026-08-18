@@ -11,8 +11,9 @@
  * npm/path forms). The bundle patch inserts this row into the host composition.
  */
 
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
   generateImage,
   savePngs,
@@ -63,11 +64,40 @@ function sessionWorkspace(exec) {
   return process.cwd()
 }
 
+/** Reverse-engineering system prompt: describe the image, then emit the NAI prompt. */
+const REVERSE_SYSTEM = [
+  '你是图像提示词反推助手。仔细观察这张图片，先客观描述画面可见内容（人数、外貌、动作表情、服装、场景、构图、镜头视角、光照），再严格按下面的 NovelAI V4.5 提示词规范，反推出能复现该画面的提示词。',
+  '只输出 JSON，不要输出 Markdown 代码块或任何解释：',
+  '{"base_caption":"整体画面 caption，以人数开头","characters":[{"caption":"角色外观 tag"}],"size_preset":"PORTRAIT|SQUARE|HORIZONTAL"}',
+  '',
+  DESIGN_RULES,
+].join('\n')
+
+/** Detect image media type from magic bytes. */
+function detectMediaType(bytes) {
+  if (bytes && bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes && bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp'
+  if (bytes && bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif'
+  return 'image/png'
+}
+
+/** Extract a JSON object from a model response (strips fences, finds first {...}). */
+function parsePromptJson(text) {
+  const s = String(text || '').replace(/```(?:json)?/gi, '').trim()
+  const start = s.indexOf('{')
+  const end = s.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return {}
+  try { return JSON.parse(s.slice(start, end + 1)) } catch { return {} }
+}
+
 export function apply(ctx, config = {}) {
   const resolved = {
     token: typeof config.token === 'string' ? config.token.trim() : '',
     proxy: typeof config.proxy === 'string' && config.proxy.trim() ? config.proxy.trim() : DEFAULT_PROXY,
     outDir: typeof config.outDir === 'string' && config.outDir.trim() ? config.outDir.trim() : null,
+    visionProvider: typeof config.visionProvider === 'string' ? config.visionProvider.trim() : '',
+    visionModel: typeof config.visionModel === 'string' ? config.visionModel.trim() : '',
   }
 
   const tool = defineTool({
@@ -249,6 +279,87 @@ export function apply(ctx, config = {}) {
     },
   })
 
+  const reverseTool = defineTool({
+    name: 'nai_reverse_prompt',
+    description: '图片提示词反推：读取一张本地图片，用配置的识图 LLM 描述画面并按 NovelAI V4.5 规范反推出提示词（base_caption + characters + size_preset），可直接交给 nai_generate_image 生成同风格图。',
+    parameters: {
+      path: { type: 'string', required: true, description: '图片文件的绝对路径（png/jpg/webp/gif）。' },
+      requirement: { type: 'string', description: '可选：对反推结果的额外要求（如「去掉角色」「改成竖图」）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          status: { type: 'string' },
+          error: { type: 'string' },
+          baseCaption: { type: 'string' },
+          characters: { type: 'array', items: { type: 'string' } },
+          sizePreset: { type: 'string' },
+          raw: { type: 'string' },
+        },
+      },
+      render(args, value) {
+        if (!value || value.status === 'error') {
+          return [{ type: 'text', text: value && value.error ? value.error : '反推失败' }]
+        }
+        return [{ type: 'text', text: '反推出的 NovelAI 提示词：\n' + value.raw }]
+      },
+    },
+    timeoutMs: 120000,
+    async execute(args, exec) {
+      const p = String((args && args.path) || '').trim()
+      if (!p) throw new Error('path 不能为空（图片文件路径）')
+      const provider = resolved.visionProvider
+      const model = resolved.visionModel
+      if (!provider || !model) {
+        throw new Error('未配置识图 LLM。请在 cordis.patch.yml 的 config 里设置 visionProvider 和 visionModel。')
+      }
+      const llm = ctx.get('llm')
+      if (!llm) throw new Error('llm 服务不可用')
+      const attachments = ctx.get('attachments')
+      if (!attachments) throw new Error('attachments 服务不可用')
+      const fsSvc = ctx.get('fs')
+      if (!fsSvc) throw new Error('fs 服务不可用')
+
+      const signal = exec && exec.signal ? exec.signal : undefined
+      const target = await fsSvc.resolve(p)
+      const bytes = await fsSvc.readBytes(target, signal, 32 * 1024 * 1024)
+      const ref = await attachments.saveImage({ data: bytes, mediaType: detectMediaType(bytes), name: basename(p) })
+
+      const requirement = String((args && args.requirement) || '').trim()
+      const userText = requirement
+        ? '请反推这张图片的 NovelAI 提示词。额外要求：' + requirement
+        : '请反推这张图片的 NovelAI 提示词。'
+      const message = createUserMessage({
+        content: [{ type: 'text', text: userText }, { type: 'image', attachment: ref }],
+        source: { kind: 'user' },
+      })
+
+      let text = ''
+      for await (const chunk of llm.stream({ provider, model, system: REVERSE_SYSTEM, messages: [message], maxTokens: 1000, signal })) {
+        if (chunk.type === 'text-delta') text += chunk.text
+        else if (chunk.type === 'finish' && chunk.reason) {
+          if (chunk.reason.kind === 'error') {
+            throw new Error('识图 LLM 报错: ' + (chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : '未知错误'))
+          }
+          if (chunk.reason.kind === 'aborted') throw new Error('识图 LLM 调用被取消')
+        }
+      }
+      const trimmed = text.trim()
+      if (!trimmed) throw new Error('识图 LLM 未返回内容')
+      const parsed = parsePromptJson(trimmed)
+      return {
+        status: 'ok',
+        baseCaption: typeof parsed.base_caption === 'string' ? parsed.base_caption : '',
+        characters: Array.isArray(parsed.characters) ? parsed.characters.map((c) => (typeof c === 'string' ? c : (c && c.caption ? c.caption : ''))).filter(Boolean) : [],
+        sizePreset: typeof parsed.size_preset === 'string' ? parsed.size_preset : 'PORTRAIT',
+        raw: trimmed,
+      }
+    },
+  })
+
   ctx.tools.register(tool)
   ctx.tools.register(tagTool)
+  ctx.tools.register(reverseTool)
 }
