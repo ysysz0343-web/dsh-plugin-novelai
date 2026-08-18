@@ -18,8 +18,8 @@ dsh plugin --profile web add @scope/dsh-plugin-novelai
 dsh plugin --profile web add file:./path/to/dsh-plugin-novelai
 ```
 
-> 仓库需公开并打上 `dsh-plugin` topic，CLI 才会在插件库中被识别。
-> git 安装时 pnpm 会要求批准构建脚本（`prepare`）；本插件无构建步骤，批准后即可用。
+> 仓库需公开；`dsh-plugin` topic 是第三方插件目录（deepseek-harness-plugin.com）收录的要求，非官方硬性要求。
+> 本插件是纯 JavaScript（无 TypeScript 构建步骤），git 安装直接可用、**无需任何构建授权**（不同于需要 `prepare` 脚本的 TypeScript 插件）。
 > 安装后部分版本需要重启 Harness（`dsh web`）才生效。
 
 验证：
